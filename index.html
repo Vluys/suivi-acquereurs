@@ -1108,7 +1108,7 @@ var currentMailAcqIdx=null;
 function openMailPreview(idx){
   currentMailAcqIdx=idx;
   var b=currentBien();if(!b)return;
-  var e=b["acqu\u00e9reurs"][idx];if(!e)return;
+  var e=b["acquéreurs"][idx];if(!e)return;
   var rdvType="visite",rdvDate="",rdvHeure="";
   if(e.visiteDate){rdvType="visite";rdvDate=e.visiteDate;rdvHeure=e.visiteHeure||"";}
   else if(e.rappelDate){rdvType="appel";rdvDate=e.rappelDate;rdvHeure=e.rappelHeure||"";}
@@ -1121,7 +1121,8 @@ function openMailPreview(idx){
   document.getElementById("mail-subject").value="Confirmation "+typeLabel+" - "+formatRdvDate(rdvDate,rdvHeure)+(bien&&bien.nom?" | "+bien.nom:"");
   document.getElementById("mail-message").value="";
   document.getElementById("mail-modal").classList.add("open");
-  updateMailPreview();
+  // Delay to ensure modal is rendered before generating preview
+  setTimeout(function(){ updateMailPreview(); }, 100);
 }
 
 function closeMailModal(){
