@@ -369,6 +369,14 @@ tr:hover td{background:#FDF8F8;}
         </div>
         <div class="fg"><label>Nom *</label><input type="text" id="f-nom"/></div>
         <div class="fg"><label>Prénom</label><input type="text" id="f-prenom"/></div>
+        <div class="fg"><label>Civilité</label>
+          <select id="f-civilite">
+            <option value="">—</option>
+            <option value="Monsieur">M.</option>
+            <option value="Madame">Mme</option>
+            <option value="Monsieur et Madame">M. et Mme</option>
+          </select>
+        </div>
         <div class="fg"><label>Téléphone</label><input type="tel" id="f-tel"/></div>
         <div class="fg"><label>Email</label><input type="email" id="f-mail"/></div>
         <div class="fg full"><label>Adresse postale</label><input type="text" id="f-adresse"/></div>
@@ -860,6 +868,7 @@ function openModal(idx){
   document.getElementById('f-date').value=e.date||new Date().toISOString().slice(0,10);
   document.getElementById('f-nom').value=e.nom||'';
   document.getElementById('f-prenom').value=e.prenom||'';
+  document.getElementById('f-civilite').value=e.civilite||'';
   document.getElementById('f-tel').value=e.tel||'';
   document.getElementById('f-mail').value=e.mail||'';
   document.getElementById('f-adresse').value=e.adresse||'';
@@ -905,6 +914,7 @@ function saveEntry(){
   const entry={
     date:document.getElementById('f-date').value,nom,
     prenom:document.getElementById('f-prenom').value.trim(),
+    civilite:document.getElementById('f-civilite').value,
     tel:document.getElementById('f-tel').value.trim(),
     mail:document.getElementById('f-mail').value.trim(),
     adresse:document.getElementById('f-adresse').value.trim(),
@@ -953,28 +963,58 @@ function deleteEntry(idx){
 }
 
 // AGENDA
-async function syncAgenda(idx){
+function syncAgenda(idx){
   const b=currentBien();if(!b)return;
   const e=b.acquéreurs[idx];if(!e)return;
   const fullName=[e.prenom,e.nom].filter(Boolean).join(' ');
   const bienLabel=b.nom||'le bien';
-  let synced=0;const promises=[];
+
+  function toGcalDate(date,heure){
+    // Format: YYYYMMDDTHHmmss
+    const d=date.replace(/-/g,'');
+    const h=(heure||'09:00').replace(':','')+'00';
+    return d+'T'+h;
+  }
+
+  function addMinutes(date,heure,minutes){
+    const dt=new Date(date+'T'+(heure||'09:00')+':00');
+    dt.setMinutes(dt.getMinutes()+minutes);
+    const y=dt.getFullYear();
+    const m=String(dt.getMonth()+1).padStart(2,'0');
+    const d=String(dt.getDate()).padStart(2,'0');
+    const hh=String(dt.getHours()).padStart(2,'0');
+    const mm=String(dt.getMinutes()).padStart(2,'0');
+    return `${y}${m}${d}T${hh}${mm}00`;
+  }
+
+  let opened=0;
+
   if(e.rappelDate){
-    const start=`${e.rappelDate}T${e.rappelHeure||'09:00'}:00`;
-    const endDt=new Date(start);endDt.setMinutes(endDt.getMinutes()+30);
-    promises.push(fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,mcp_servers:[{type:'url',url:'https://calendarmcp.googleapis.com/mcp/v1',name:'google-calendar'}],messages:[{role:'user',content:`Crée un événement Google Agenda. Titre: "Rappel — ${fullName} (${bienLabel})", Début: ${start}, Fin: ${endDt.toISOString().slice(0,19)}${e.rappelNotes?', Description: '+e.rappelNotes:''}. Utilise create_event.`}]})}).then(r=>{if(r.ok)synced++;}).catch(()=>{}));
+    const start=toGcalDate(e.rappelDate,e.rappelHeure||'09:00');
+    const end=addMinutes(e.rappelDate,e.rappelHeure||'09:00',30);
+    const title=encodeURIComponent('Rappel — '+fullName+' ('+bienLabel+')');
+    const details=encodeURIComponent((e.rappelNotes||'')+(e.tel?'\nTél: '+e.tel:''));
+    const url='https://calendar.google.com/calendar/render?action=TEMPLATE&text='+title+'&dates='+start+'/'+end+'&details='+details;
+    window.open(url,'_blank');
+    opened++;
   }
+
   if(e.visiteDate){
-    const start=`${e.visiteDate}T${e.visiteHeure||'10:00'}:00`;
-    const endDt=new Date(start);endDt.setMinutes(endDt.getMinutes()+(e.visiteDuree||60));
-    promises.push(fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,mcp_servers:[{type:'url',url:'https://calendarmcp.googleapis.com/mcp/v1',name:'google-calendar'}],messages:[{role:'user',content:`Crée un événement Google Agenda. Titre: "Visite — ${fullName} / ${bienLabel}", Début: ${start}, Fin: ${endDt.toISOString().slice(0,19)}, Lieu: ${e.visiteLieu||bienLabel}. Utilise create_event.`}]})}).then(r=>{if(r.ok)synced++;}).catch(()=>{}));
+    const start=toGcalDate(e.visiteDate,e.visiteHeure||'10:00');
+    const end=addMinutes(e.visiteDate,e.visiteHeure||'10:00',e.visiteDuree||60);
+    const title=encodeURIComponent('Visite — '+fullName+' / '+bienLabel);
+    const location=encodeURIComponent(e.visiteLieu||bienLabel);
+    const details=encodeURIComponent('Acquéreur: '+fullName+(e.tel?'\nTél: '+e.tel:'')+(e.mail?'\nEmail: '+e.mail:''));
+    const url='https://calendar.google.com/calendar/render?action=TEMPLATE&text='+title+'&dates='+start+'/'+end+'&location='+location+'&details='+details;
+    window.open(url,'_blank');
+    opened++;
   }
-  if(!promises.length){toast('Aucune date à synchroniser');return;}
-  toast('Synchronisation…');
-  await Promise.all(promises);
-  b.acquéreurs[idx].calSynced=synced>0;
+
+  if(!opened){toast('Aucune date de rappel ou visite à ajouter');return;}
+
+  b.acquéreurs[idx].calSynced=true;
   save();render();
-  toast(synced>0?`${synced} événement${synced>1?'s':''} ajouté${synced>1?'s':''} dans Google Agenda`:'Erreur — agenda à synchroniser depuis Claude.ai');
+  toast(opened+' événement'+(opened>1?'s':'')+' ouvert'+(opened>1?'s':'')+' dans Google Agenda — cliquez Enregistrer !');
 }
 
 // EXPORT / IMPORT
@@ -1135,8 +1175,7 @@ function updateMailPreview(){
   var rdvHeure=document.getElementById("mail-heure").value;
   var extraMsg=document.getElementById("mail-message").value.trim();
   var fullName=[e.prenom,e.nom].filter(Boolean).join(" ");
-  var lastChar=(e.prenom||"").trim().slice(-1).toLowerCase();
-  var civility=e.prenom?(lastChar==="e"||lastChar==="a"?"Madame":"Monsieur"):"Madame / Monsieur";
+  var civility=e.civilite||((e.prenom||"").trim().slice(-1).toLowerCase()==="e"?"Madame":"Monsieur");
   var typeLabels={visite:"\ud83c\udfe0 Visite du bien",appel:"\ud83d\udcde Rappel t\u00e9l\u00e9phonique",visio:"\ud83d\udcbb Visioconf\u00e9rence"};
   var typeTitles={visite:"Confirmation de visite",appel:"Confirmation d appel",visio:"Confirmation de visioconf\u00e9rence"};
   var typeMsgs={
